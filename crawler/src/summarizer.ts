@@ -1,7 +1,16 @@
 // Default to local Ollama; set SUMMARIZER=gemini to use Gemini API instead
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434'
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? 'qwen3:8b'
-const GEMINI_MODEL = 'gemini-2.0-flash'
+
+// Gemini model pool — tried in order, falls back on 429 (quota exhausted)
+// RPM=15 for all; RPD: gemma-4-26b=1500, gemma-4-31b=1500, gemini-3.1-flash-lite=500
+const GEMINI_MODEL_POOL = [
+  'gemma-4-26b-a4b-it',      // primary: RPD 1500
+  'gemma-4-31b-it',          // fallback: RPD 1500
+  'gemini-3.1-flash-lite-preview', // last resort: RPD 500
+]
+
+export const GEMINI_RPM = 15 // requests per minute, same for all pool models
 
 interface SummaryResult {
   summary: string
@@ -26,9 +35,11 @@ function parseResult(text: string): SummaryResult | null {
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .trim()
 
-  // Extract JSON object if surrounded by extra text
-  const match = cleaned.match(/\{[\s\S]*\}/)
-  if (!match) return null
+  // Extract the LAST JSON object — models like Gemma 4 emit chain-of-thought
+  // followed by multiple JSON blocks; the final one is the actual answer
+  const matches = [...cleaned.matchAll(/\{[^{}]*\}/g)]
+  if (matches.length === 0) return null
+  const match = matches[matches.length - 1]
 
   const parsed = JSON.parse(match[0]) as { summary: string; tags: string[] }
   if (typeof parsed.summary !== 'string' || !Array.isArray(parsed.tags)) return null
@@ -54,15 +65,36 @@ async function summarizeWithOllama(title: string, url: string): Promise<SummaryR
   return parseResult(data.response)
 }
 
+// Tracks which model in the pool is currently active
+let activeModelIndex = 0
+
 async function summarizeWithGemini(title: string, url: string): Promise<SummaryResult | null> {
   const { GoogleGenerativeAI } = await import('@google/generative-ai')
   const key = process.env.GEMINI_API_KEY
   if (!key) throw new Error('Missing GEMINI_API_KEY')
 
   const genAI = new GoogleGenerativeAI(key)
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL })
-  const result = await model.generateContent(PROMPT_TEMPLATE(title, url))
-  return parseResult(result.response.text())
+
+  // Try each model in pool; rotate on 429
+  for (let attempt = 0; attempt < GEMINI_MODEL_POOL.length; attempt++) {
+    const modelId = GEMINI_MODEL_POOL[activeModelIndex]
+    try {
+      const model = genAI.getGenerativeModel({ model: modelId })
+      const result = await model.generateContent(PROMPT_TEMPLATE(title, url))
+      return parseResult(result.response.text())
+    } catch (err) {
+      const msg = (err as Error).message
+      const isQuotaError = msg.includes('429') || msg.includes('quota')
+      if (isQuotaError && activeModelIndex < GEMINI_MODEL_POOL.length - 1) {
+        console.warn(`[summarizer] ${modelId} quota exhausted, switching to next model`)
+        activeModelIndex++
+      } else {
+        throw err
+      }
+    }
+  }
+
+  throw new Error('All Gemini models in pool exhausted')
 }
 
 export async function summarizeArticle(title: string, url: string): Promise<SummaryResult | null> {

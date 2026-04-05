@@ -1,8 +1,10 @@
 import 'dotenv/config'
+import { setupProxy } from './proxy.js'
+setupProxy()
 import { feeds } from './feeds.js'
 import { parseFeed } from './parser.js'
 import { upsertArticles, getArticlesNeedingSummary, updateSummaryAndTags } from './db.js'
-import { summarizeArticle, sleep } from './summarizer.js'
+import { summarizeArticle, sleep, GEMINI_RPM } from './summarizer.js'
 
 const USE_GEMINI = process.env.SUMMARIZER === 'gemini'
 
@@ -32,8 +34,14 @@ async function main() {
   const backend = USE_GEMINI ? 'Gemini' : `Ollama (${process.env.OLLAMA_MODEL ?? 'qwen3:8b'})`
   console.log(`[crawler] Phase 2: Summarizing with ${backend}...`)
 
-  const needsSummary = await getArticlesNeedingSummary(20)
-  console.log(`[crawler] ${needsSummary.length} articles need summaries`)
+  // Gemini pool total RPD: 1500 + 1500 + 500 = 3500/day
+  // Crawl runs 6x/day → ~580 per run, well within capacity; cap at 50 to be safe
+  const PER_RUN_LIMIT = USE_GEMINI ? 50 : 20
+  // RPM=15 for all pool models → 1 request per 4s (with small buffer)
+  const GEMINI_SLEEP_MS = USE_GEMINI ? Math.ceil(60_000 / GEMINI_RPM) + 500 : 0
+
+  const needsSummary = await getArticlesNeedingSummary(PER_RUN_LIMIT)
+  console.log(`[crawler] ${needsSummary.length} articles need summaries (limit: ${PER_RUN_LIMIT})`)
 
   for (const article of needsSummary) {
     const result = await summarizeArticle(article.title, article.url)
@@ -41,9 +49,7 @@ async function main() {
       await updateSummaryAndTags(article.id, result.summary, result.tags)
       console.log(`[crawler] Summarized: ${article.title.slice(0, 60)}`)
     }
-    // Gemini free tier: 15 RPM → sleep 4s between calls
-    // Ollama is local, no rate limit needed
-    if (USE_GEMINI) await sleep(4000)
+    if (GEMINI_SLEEP_MS > 0) await sleep(GEMINI_SLEEP_MS)
   }
 
   console.log(`[crawler] Done at ${new Date().toISOString()}`)
