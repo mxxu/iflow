@@ -1,0 +1,34 @@
+name: Crawl RSS Feeds
+
+on:
+  schedule:
+    - cron: '0 */4 * * *'  # every 4 hours
+  workflow_dispatch:         # allow manual trigger
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+          cache-dependency-path: crawler/pnpm-lock.yaml
+
+      - name: Install crawler dependencies
+        run: pnpm --filter crawler install --frozen-lockfile
+
+      - name: Run crawler
+        run: pnpm --filter crawler start
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
