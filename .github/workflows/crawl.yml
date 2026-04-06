@@ -20,8 +20,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'pnpm'
-          cache-dependency-path: crawler/pnpm-lock.yaml
 
       - name: Install crawler dependencies
         run: pnpm --filter crawler install --frozen-lockfile
