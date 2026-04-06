@@ -3,13 +3,17 @@ import { setupProxy } from './proxy.js'
 setupProxy()
 import { feeds } from './feeds.js'
 import { parseFeed } from './parser.js'
-import { upsertArticles, getArticlesNeedingSummary, updateSummaryAndTags } from './db.js'
+import { upsertArticles, getArticlesNeedingSummary, updateSummaryAndTags, deleteOldArticles } from './db.js'
 import { summarizeArticle, sleep, GEMINI_RPM } from './summarizer.js'
 
 const USE_GEMINI = process.env.SUMMARIZER === 'gemini'
 
 async function main() {
   console.log(`[crawler] Starting at ${new Date().toISOString()}`)
+
+  // Phase 0: Clean up articles older than 7 days
+  const deleted = await deleteOldArticles(7)
+  if (deleted > 0) console.log(`[crawler] Deleted ${deleted} articles older than 7 days`)
 
   // Phase 1: Fetch all feeds and upsert articles
   let totalInserted = 0

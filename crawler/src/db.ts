@@ -55,3 +55,16 @@ export async function updateSummaryAndTags(id: string, summary: string, tags: st
   const { error } = await supabase.from('articles').update({ summary, tags }).eq('id', id)
   if (error) throw new Error(`Supabase update failed: ${error.message}`)
 }
+
+// Delete articles older than retentionDays (default 7) to keep DB within free tier limits
+export async function deleteOldArticles(retentionDays = 7): Promise<number> {
+  const supabase = getClient()
+  const cutoff = new Date(Date.now() - retentionDays * 86_400_000).toISOString()
+  const { error, count } = await supabase
+    .from('articles')
+    .delete({ count: 'exact' })
+    .lt('published_at', cutoff)
+
+  if (error) throw new Error(`Supabase delete failed: ${error.message}`)
+  return count ?? 0
+}
