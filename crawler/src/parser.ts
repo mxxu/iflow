@@ -30,7 +30,10 @@ export async function parseFeed(feed: Feed): Promise<Article[]> {
 
   const articles: Article[] = []
 
-  for (const item of parsed.items ?? []) {
+  // Cap at 30 most recent items per feed to avoid ingesting full history
+  const items = (parsed.items ?? []).slice(0, 30)
+
+  for (const item of items) {
     const result = RssItemSchema.safeParse(item)
     if (!result.success) continue
 
