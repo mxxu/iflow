@@ -39,21 +39,31 @@ async function main() {
   console.log(`[crawler] Phase 2: Summarizing with ${backend}...`)
 
   // Gemini pool total RPD: 1500 + 1500 + 500 = 3500/day
-  // Crawl runs 6x/day → ~580 per run, well within capacity; no cap needed
   const PER_RUN_LIMIT = USE_GEMINI ? 200 : 20
-  // RPM=15 for all pool models → 1 request per 4s (with small buffer)
-  const GEMINI_SLEEP_MS = USE_GEMINI ? Math.ceil(60_000 / GEMINI_RPM) + 500 : 0
+  // RPM=15 → process in batches of 5 concurrent requests, then wait 20s
+  // 5 req / 20s = 15 RPM, batch processing is 5x faster than serial
+  const GEMINI_CONCURRENCY = USE_GEMINI ? 5 : 1
+  const GEMINI_BATCH_SLEEP_MS = USE_GEMINI ? 20_000 : 0
 
   const needsSummary = await getArticlesNeedingSummary(PER_RUN_LIMIT)
-  console.log(`[crawler] ${needsSummary.length} articles need summaries (limit: ${PER_RUN_LIMIT})`)
+  console.log(`[crawler] ${needsSummary.length} articles need summaries (limit: ${PER_RUN_LIMIT}, concurrency: ${GEMINI_CONCURRENCY})`)
 
-  for (const article of needsSummary) {
-    const result = await summarizeArticle(article.title, article.url)
-    if (result) {
-      await updateSummaryAndTags(article.id, result.summary, result.tags)
-      console.log(`[crawler] Summarized: ${article.title.slice(0, 60)}`)
+  // Process in concurrent batches
+  for (let i = 0; i < needsSummary.length; i += GEMINI_CONCURRENCY) {
+    const batch = needsSummary.slice(i, i + GEMINI_CONCURRENCY)
+    await Promise.all(
+      batch.map(async (article) => {
+        const result = await summarizeArticle(article.title, article.url)
+        if (result) {
+          await updateSummaryAndTags(article.id, result.summary, result.tags)
+          console.log(`[crawler] Summarized: ${article.title.slice(0, 60)}`)
+        }
+      })
+    )
+    // Wait between batches to respect RPM limit (skip after last batch)
+    if (GEMINI_BATCH_SLEEP_MS > 0 && i + GEMINI_CONCURRENCY < needsSummary.length) {
+      await sleep(GEMINI_BATCH_SLEEP_MS)
     }
-    if (GEMINI_SLEEP_MS > 0) await sleep(GEMINI_SLEEP_MS)
   }
 
   console.log(`[crawler] Done at ${new Date().toISOString()}`)
