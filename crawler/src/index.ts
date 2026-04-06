@@ -35,8 +35,8 @@ async function main() {
   console.log(`[crawler] Phase 2: Summarizing with ${backend}...`)
 
   // Gemini pool total RPD: 1500 + 1500 + 500 = 3500/day
-  // Crawl runs 6x/day → ~580 per run, well within capacity; cap at 50 to be safe
-  const PER_RUN_LIMIT = USE_GEMINI ? 50 : 20
+  // Crawl runs 6x/day → ~580 per run, well within capacity; no cap needed
+  const PER_RUN_LIMIT = USE_GEMINI ? 200 : 20
   // RPM=15 for all pool models → 1 request per 4s (with small buffer)
   const GEMINI_SLEEP_MS = USE_GEMINI ? Math.ceil(60_000 / GEMINI_RPM) + 500 : 0
 
