@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase'
+import { verifyApiKey } from '@/lib/auth'
 import type { Article } from '@/lib/types'
 
 export async function GET(request: NextRequest) {
+  const unauthorized = verifyApiKey(request)
+  if (unauthorized) return unauthorized
+
   const { searchParams } = request.nextUrl
 
   const limit = Math.min(parseInt(searchParams.get('limit') ?? '20', 10), 100)

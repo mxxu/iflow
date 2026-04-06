@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase'
+import { verifyApiKey } from '@/lib/auth'
 import type { Article } from '@/lib/types'
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const unauthorized = verifyApiKey(request)
+  if (unauthorized) return unauthorized
+
   const { id } = await params
   const supabase = createServerSupabaseClient()
 
