@@ -2,7 +2,7 @@ name: Crawl RSS Feeds
 
 on:
   schedule:
-    - cron: '0 */4 * * *'  # every 4 hours
+    - cron: '0 2 * * *'  # every day at 2am UTC
   workflow_dispatch:         # allow manual trigger
 
 jobs:
